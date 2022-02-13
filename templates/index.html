@@ -1,30 +1,72 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" xmlns="http://www.w3.org/1999/html">
+
 <head>
-    <meta charset="UTF-8">
-    <title>Главная страница</title>
-    <link rel="stylesheet" href="../static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Курсовая работа 2</title>
+  <link href="/static/css/styles.min.css" rel="stylesheet">
 </head>
+
 <body>
+  <header class="container header">
+    <div class="header__wrapper">
 
-<main>
+      <h2> Курсовая работа №2 </h2> </br>
 
-    <h1>Поиск постов</h1>
+      <a href="/bookmarks/{{bookmarks_count}}" class="header__bookmark-btn">
+        <img src="/static/img/bookmark.png" alt="" class="header__bookmark-icon" width="28">
+        <span class="header__bookmark-counter"> {{ bookmarks_count }} </span>
+      </a>
+    </div>
+  </header>
+  <main class="container">
+    <section class="items">
+      {% for post in posts %}
+      <div class="items__item item">
+        <div class="item__top">
+          <a href="/users/{{ post.poster_name }}" class="item__head">
+            <div class="item__ava-wrap">
+              <img src="{{ post.poster_avatar }}" alt="аватарка" class="item__ava" width="47">
+            </div>
+            <span class="item__username">{{ post.poster_name }}</span>
+          </a>
+        </div>
+        <a href="/posts/{{ post.pk }}" class="item__post-link">
+          <img src="{{ post.pic }}" alt="" width="348" class="item__post-img">
+        </a>
+        <p class="item__descr">{{ post.content|safe }}</p>
+        <div class="item__post-info">
+          <p class="item__comments-counter">лайков: {{ post.likes_count}}</p>
+          <div class="item__counter">
+            <img src="/static/img/eye.png" alt="просмотров" class="item__counter-icon" width="26">
+            <span class="item__counter-text">{{ post.views_count }}</span>
+          </div>
+        </div>
+        <div class="item__post-bottom">
+          <a href="/posts/{{ post.pk }}" class="item__btn-more">Подробнее</a>
 
-    <form action="/tag" method="post">
-        <p>По тегу</p>
-        <select name="tag" >
-            {% for tag in all_tags %}
-                <option value="{{ tag }}">{{ tag }}</option>
-            {% endfor %}
-        </select>
-        <input type="submit" value="Найти" class="button">
+          <button type="button" class="item__bookmark-btn">
+            {% if post.pk in bookmarks %}
+            <a href="/del/{{ post.pk }}" class="item__delete">Удалить из закладок</a>
+            {% else %}
+            <a href="/add/{{ post.pk }}" class="item__btn-more">Добавить в закладки</a>
+            {% endif %}
+          </button>
+
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+
+    <form action="/search" class="search__form">
+      <h3>Форма поиска:</h3>
+      <input name="s" type="search" class="search__input" value="Фраза для поиска">
     </form>
 
     <hr>
+  </main>
 
-    <a href="/post" class="button">Добавить пост</a>
-
-</main>
 </body>
+
 </html>

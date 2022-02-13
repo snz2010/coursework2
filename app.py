@@ -1,78 +1,136 @@
 import os
 from pathlib import Path
-from flask import Flask, request, render_template, send_from_directory, redirect
-import json
-from functions import search_tags, search_selected_tags
+from flask import Flask, request, render_template, redirect
+from functions import get_all_posts, get_comments_by_post_pk, get_post_by_user, get_post_by_pk, search_for_posts, \
+    make_tag_link, read_bookmarks, write_bookmarks, get_all_comments, write_all_comments
 
-POST_PATH = "posts.json"
-UPLOAD_FOLDER = "uploads/images"
+POST_PATH = "data/data.json"
+COMMENTS_PATH = "data/comments.json"
+BOOK_PATH = "data/bookmarks.json"
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
 
+# обработчик главной страницы: ЛЕНТА ПОСТОВ
 @app.route("/")
 def page_index():
-    # считываем из файла теги
-    with open(POST_PATH, 'r', encoding='utf-8') as f:
-        current_data = json.load(f)
-    # ищем теги среди считанного
-    all_tags = search_tags(current_data)
-    # выводим найденные теги в выпадающем списке
-    return render_template("index.html", all_tags=all_tags)
+    posts = get_all_posts(POST_PATH)
+    bookmarks = read_bookmarks(BOOK_PATH)
+    # реализуем укороченную версию контента - через срез 50 символов
+    for post in posts:
+        post["content"] = post["content"][0:46] + "..."
+        post["content"] = make_tag_link(post["content"], 0)
+    return render_template("index.html", posts=posts, bookmarks_count=len(bookmarks), bookmarks=bookmarks)
 
 
-@app.route("/tag", methods=["GET", "POST"])
-def page_tag():
-    if request.method == "POST":
-        # получим искомый тег
-        selected_tag = request.form.get("tag")
-        if selected_tag is None:
-            return "<h1>Ошибочка: Отсутствует тег поиска!</h1>"
-        # считываем из файла теги
-        with open(POST_PATH, 'r', encoding='utf-8') as f:
-            current_data = json.load(f)
-        # выберем содержащие этот тег записи
-        selected_tags = search_selected_tags(current_data, selected_tag)
-        return render_template("post_by_tag.html", selected_tags=selected_tags, selected_tag=selected_tag)
-    else:
-        return f"<h1>Тег поиска - задан через GET</h1>"
+# обработчик подробной странички поста - с комментариями и полным текстом
+@app.route("/posts/<int:post_pk>")
+def page_single_post(post_pk):
+    # выбор поста по идентификатору
+    post = get_post_by_pk(post_pk, POST_PATH)
+    # сбор комментариев к выбранному посту
+    comments = get_comments_by_post_pk(post_pk, COMMENTS_PATH)
+    # подсчет числа комментов
+    number_of_comments = len(comments)
+    return render_template("post.html", post=post, comments=comments, number_of_comments=number_of_comments)
 
 
-@app.route("/post", methods=["GET"])
-def page_post_create():
-    return render_template("post_form.html")
+# обработчик поиска по содержимому постов
+@app.route("/search")
+def page_search():
+    # поисковая фраза
+    query = request.args.get("s")
+    if not query or query == "":
+        return "Вы ничего не запросили ..."
+    # подходящие запросу посты
+    posts = search_for_posts(query, POST_PATH)
+    for post in posts:
+        post["content"] = make_tag_link(post["content"], 0)
+    # их количество
+    number_of_posts = len(posts)
+    return render_template("search.html", posts=posts, number_of_posts=number_of_posts, query=query)
 
 
-@app.route("/post", methods=["POST"])
-def new_post_create():
-    # получим новые данные
-    picture = request.files.get("picture")
-    content = request.form.get("content")
-    # редирект обратно, если файл-картинка не пришел
-    if not picture:
-        return redirect("/post")
-    filename = picture.filename
-    # сформируем путь к файлу с картинкой для её записи в разрешённый каталог
-    path = "./" + UPLOAD_FOLDER + "/" + filename
-    picture.save(path)  # сохраним картинку
-    # сформируем ссылку для сервера и записи её в файл json
-    picture_url = "/" + UPLOAD_FOLDER + "/" + filename
-    # считаем из json-файла текущий словарик тегов
-    with open(POST_PATH, 'r', encoding='utf-8') as f:
-        current_data = json.load(f)
-    # пишем в файл json новые данные
-    with open(POST_PATH, "w", encoding='utf-8') as f:
-        current_data.append({"pic": picture_url, "content": content})
-        json.dump(current_data, f, ensure_ascii=False)
-    return render_template("post_uploaded.html", picture=picture_url, content=content)
+# обработчик вывода постов конкретного пользователя
+@app.route("/users/<username>")
+def page_by_user(username):
+    posts = get_post_by_user(username, POST_PATH)
+    number_of_posts = len(posts)
+    return render_template("user-feed.html", username=username, posts=posts, number_of_posts=number_of_posts)
 
 
-# ВАЖНАЯ ФУНКЦИЯ, БЕЗ КОТОРОЙ НЕ ОТОБРАЖАЮТСЯ ФАЙЛЫ КАРТИНОК ИЗ /uploads
-@app.route("/uploads/<path:path>")
-def static_dir(path):
-    return send_from_directory("uploads", path)
+# обработчик перехода по тегу
+@app.route("/tag/<tag_name>")
+def page_tag(tag_name):
+    # получим искомый тег
+    if len(tag_name) < 1:
+        return "Ошибочка: Отсутствует тег поиска!"
+    # подходящие запросу посты
+    posts = search_for_posts("#" + tag_name, POST_PATH)
+    for post in posts:
+        post["content"] = make_tag_link(post["content"], 0)
+    return render_template("tag.html", posts=posts, tag_name=tag_name)
 
+
+# обработчик добавления поста в закладки
+@app.route("/add/<int:post_id>")
+def page_add_bm(post_id):
+    # получим текущие закладки
+    bookmarks = read_bookmarks(BOOK_PATH)
+    # добавим выбранный пост
+    if post_id not in bookmarks:
+        bookmarks.append(post_id)
+    write_bookmarks(BOOK_PATH, bookmarks)
+    return redirect("/", code=302)  # После добавления переадресуйте на главную страницу
+
+
+# представление с удалением из закладок
+@app.route("/del/<int:post_id>")
+def page_del_bm(post_id):
+    # получим текущие закладки
+    bookmarks = read_bookmarks(BOOK_PATH)
+    # удалим переданную закладку
+    bookmarks.remove(post_id)
+    write_bookmarks(BOOK_PATH, bookmarks)
+    return redirect("/", code=302)
+
+
+# представление для вывода закладок
+@app.route("/bookmarks/<int:bm_count>")
+def page_bm(bm_count):
+    if bm_count == 0:
+        return redirect("/", code=302)
+    if bm_count > 0:
+        # получим текущие закладки
+        bookmarks = read_bookmarks(BOOK_PATH)
+        # прочитаем посты
+        posts = []
+        for item in bookmarks:
+            posts.append(get_post_by_pk(item, POST_PATH))
+        return render_template("bookmarks.html", posts=posts)
+
+
+# представление для добавления комментария к посту
+@app.route("/add_comment")
+def page_add_comment():
+    # получим данные из формы
+    commenter_name = request.args.get("commenter_name")
+    comment = request.args.get("comment")
+    post_id = request.args.get("post_id")
+    print(f"\n c_n={commenter_name}; comm={comment}; post_id={post_id}\n")
+    # чтение файла комментариев
+    comments = get_all_comments(COMMENTS_PATH)
+    # формирование нового
+    new_comment = {}
+    new_comment["post_id"] = int(post_id)
+    new_comment["commenter_name"] = commenter_name
+    new_comment["comment"] = comment
+    new_comment["pk"] = int(comments[len(comments)-1]["pk"]+1)
+    comments.append(new_comment)
+    # запись в файл всех комментариев
+    write_all_comments(COMMENTS_PATH, comments)
+    return redirect("/", code=302)
 
 os.chdir(Path(os.path.abspath(__file__)).parent)
 app.run()

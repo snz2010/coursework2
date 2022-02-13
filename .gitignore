@@ -1,2 +1,5 @@
 /venv/
-.idea
+/.idea
+/uploads
+/__pycache__/
+
